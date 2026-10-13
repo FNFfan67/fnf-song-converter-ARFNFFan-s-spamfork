@@ -7,24 +7,19 @@ function getFile() {
 }
 
 function dragOverHandler(ev) {
-  // Prevent default behavior (Prevent file from being opened)
   ev.preventDefault();
 }
 
 function dropHandler(ev) {
-    // Prevent default behavior (Prevent file from being opened)
     ev.preventDefault();
     var files = [];
     if (ev.dataTransfer.items) {
-        // Use DataTransferItemList interface to access the file(s)
         for (var i = 0; i < ev.dataTransfer.items.length; i++) {
-            // If dropped items aren't files, reject them
             if (ev.dataTransfer.items[i].kind === 'file') {
                 files.push(ev.dataTransfer.items[i].getAsFile());
             };
         };
     } else {
-        // Use DataTransfer interface to access the file(s)
         for (var i = 0; i < ev.dataTransfer.files.length; i++) {
         files.push(ev.dataTransfer.files[i]);
         };
@@ -53,18 +48,16 @@ function loadFile(file) {
     return
   }
   
-  fileNameArea.innerHTML = file.name;
+  fileNameArea.innerHTML = `${file.name} (Processing...)`;
   let reader = new FileReader();
 
   reader.onload = (e) => {
-    // Handle dropdown - "modulo", "ignore", "expanded"
     noteHandlingOption = document.getElementById("noteHandlingSelector").value
 
     const json = JSON.parse(
-        e.target.result.replace(/^\0+/, '').replace(/\0+$/, '') // sometimes has \x00 at the end
+        e.target.result.replace(/^\0+/, '').replace(/\0+$/, '')
     );
 
-    // display bpm and speed, reset output area
     var outputString = '';
     outputArea.innerHTML = '';
     const outputTextInitial = document.createElement("h3");
@@ -86,8 +79,7 @@ function loadFile(file) {
         }
     }
 
-    for (i = 0; i < json.song.notes.length; i++) {
-        // sections
+    for (let i = 0; i < json.song.notes.length; i++) {
         const section = json.song.notes[i];
 
         if (section.mustHitSection == false) {
@@ -100,8 +92,7 @@ function loadFile(file) {
 
         beginsection_timing += ((60 / bpm) * 4) / 16 * section.lengthInSteps * 1000;
 
-        // notes
-        for (x = 0; x < section.sectionNotes.length; x++) {
+        for (let x = 0; x < section.sectionNotes.length; x++) {
             let note = section.sectionNotes[x];
             let timing = note[0].toFixed(4).padStart(12, '0')
 
@@ -111,13 +102,11 @@ function loadFile(file) {
 
             switch(noteHandlingOption) {
                 case "modulo":
-                    // truncates modified notes (e.g. hurt notes)
                     if (note.length == 3) {
                         addToNotesList(timing, `${assignment[note[1]%8]}_${note[2]}`);
                     }
                     break;
                 case "ignore":
-                    // note modifiers are often index 3 (length 4)
                     if (note[1] < 8 && note.length == 3) {
                         addToNotesList(timing, `${assignment[note[1]]}_${note[2]}`);
                     }
@@ -146,29 +135,42 @@ function loadFile(file) {
         }
     }
 
-    // we need to do these shenanigans due to the way sections can be formatted; sometimes all notes are grouped in one giant section
+    // --- OPTIMIZED FOR LARGE CHARTS ---
+    // Using a single Set directly avoids large array concatenation and 
+    // prevents "Maximum call stack size exceeded" errors from the spread operator (...)
+    const timingSet = new Set();
+    
+    const noteKeys = Object.keys(notesList);
+    for (let k = 0; k < noteKeys.length; k++) {
+        timingSet.add(noteKeys[k]);
+    }
 
-    lookupArray = Object.keys(notesList); // get note timings
+    const sectionKeys = Object.keys(sectionList);
+    for (let k = 0; k < sectionKeys.length; k++) {
+        timingSet.add(sectionKeys[k]);
+    }
 
-    lookupArray = lookupArray.concat(Object.keys(sectionList)) // concat with section timings
+    // Convert Set back to array safely using Array.from instead of [...set]
+    const lookupArray = Array.from(timingSet);
+    lookupArray.sort((a, b) => Number(a) - Number(b));
 
-    lookupArray = [...new Set(lookupArray)]; // remove duplicates
-
-    lookupArray.sort((a,b) => Number(a)-Number(b)) // sort
-
-    for (var i = 0; i < lookupArray.length; i++) {
-        // if a valid section is at this lookup, add it to the scratch list
-        if (Object.keys(sectionList).includes(lookupArray[i])) {
-            scratchList.push(`#${sectionList[lookupArray[i]]}-${lookupArray[i]}`)
+    for (let i = 0; i < lookupArray.length; i++) {
+        const timeKey = lookupArray[i];
+        
+        if (sectionList[timeKey] !== undefined) {
+            scratchList.push(`#${sectionList[timeKey]}-${timeKey}`)
         }
 
-        // if a valid note is at this lookup, add it to the scratch list
-        if (Object.keys(notesList).includes(lookupArray[i])) {
-            for (var x = 0; x < notesList[lookupArray[i]].length; x++) {
-                scratchList.push(`?${lookupArray[i]}_${notesList[lookupArray[i]][x]}`)
+        if (notesList[timeKey] !== undefined) {
+            const currentNotes = notesList[timeKey];
+            for (let x = 0; x < currentNotes.length; x++) {
+                scratchList.push(`?${timeKey}_${currentNotes[x]}`)
             }
         }
     }
+
+    // Update file name status back to normal
+    fileNameArea.innerHTML = file.name;
 
     // Create download link for outputted text file
     const blob = new Blob([scratchList.join("\n")], {type : 'text/plain'});
